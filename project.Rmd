@@ -1,0 +1,115 @@
+---
+title: "Practical Machine Learning - Prediction Assignment Writeup"
+author: "Franck Bettinger"
+date: "23/05/2015"
+output:
+  html_document:
+    number_sections: yes
+    toc: yes
+---
+
+## Loading the data
+
+First things first, let's load the caret library and the data :
+
+```{r}
+library(caret)
+set.seed(12534)
+train<-read.csv("pml-training.csv")
+test<-read.csv("pml-testing.csv")
+```
+
+Looking at the data, a lot of columns have only NA values. We remove those columns by only looking at the first value using those commands :
+
+```{r}
+training<-train[,!is.na(train[1,])]
+testing<-test[,!is.na(train[1,])]
+```
+
+Furthemore, we only keep columns that have more than one value. Indeed a column with only one information is not usefull for prediction :
+
+```{r}
+cols<-names(which(lapply(training, length)>1))
+training<-training[,cols]
+testing<-testing[,intersect(names(testing),cols)]
+```
+
+Adn finally, we remove the "X" column that contains a sequence number. This column is not usefull for prediction and might mess with it :
+
+```{r}
+training$X<-NULL
+```
+
+## Getting an idea on the features to use 
+
+First, to do prediction and avoid errors on the train function, we need to cast the training variable to a data.frame again (although it's already supposed to be one) :
+
+```{r}
+training<-as.data.frame(training)
+```
+
+We want to run a random forest on all variable of the data and check the variable importance of the result. Unfortunately, that takes a lot of time if we keep all data. So we're only going to run it on 200 rows.
+To ensure our subset of data is not biased, we suffle it first :
+
+
+```{r}
+training<-training[sample(1:dim(training)[1]),]
+```
+
+We cna then run our model. To keep time down, we can bound the number of trees, number of permutations and number of tries of the model :
+
+```{r}
+rfModFit1<-train(classe ~ ., data=head(training,n=200), method="rf", ntree=10, nPerm=5, ntry=10)
+```
+
+The variable importance can then be computed usin gthe following command : 
+
+```{r}
+imp<-varImp(rfModFit1)
+imp
+```
+
+Let's plot the classes on a plot using the 2 first variables :
+```{r echo=FALSE}
+qplot(roll_belt, magnet_dumbbell_y, color=classe, data=training)
+```
+
+Looks like we have some obvious groupings already, We are on the right track.
+
+Let's plot those values to see how many variable to keep :
+
+```{r echo=FALSE}
+plot(imp$importance$Overall[order(imp$importance$Overall, decreasing = TRUE)])
+```
+
+Looks like 5 is a good choice. A bit of experiments confirm those (5 gives the best result of we try to learn with 5, 6 or 7 variables).
+
+## Learning
+
+So let's learn on the full dataset now :
+
+```{r}
+rfModFit<-train(classe ~ roll_belt+magnet_dumbbell_y + magnet_arm_x+raw_timestamp_part_1+num_window, data=training, method="rf", ntree=10, nPerm=5, ntry=10)
+rfModFit
+```
+
+As we can see this gives a good accuracy of 99.9%.
+
+Since the trin algorithm made cross validation for us, let's see the out of bag error :
+
+```{r}
+rfModFit$finalModel
+```
+
+The out of bag error is 0.25%
+
+## Prediction
+
+The only part left now is predicting the labeles of the test gestures :
+
+```{r}
+answers<-predict(rfModFit, testing)
+answers
+```
+
+Which gives the result of the assignment.
